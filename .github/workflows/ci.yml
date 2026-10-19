@@ -1,0 +1,56 @@
+name: MLOps CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test-and-train:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install -e ".[dev]"
+      - name: Lint
+        run: |
+          ruff check src tests scripts
+          ruff format --check src tests scripts
+      - name: Unit tests
+        run: pytest
+      - name: Download dataset
+        run: python scripts/download_data.py
+      - name: Prepare cleaned dataset
+        run: python scripts/prepare_data.py
+      - name: Run EDA
+        run: python scripts/eda.py
+      - name: Train and log experiments
+        run: python -m heart_ml.train --data data/raw/heart.csv --output models
+      - name: Upload run artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mlops-run-${{ github.run_id }}
+          path: |
+            models/heart_model.joblib
+            models/heart_model.pkl
+            models/*_pipeline.joblib
+            data/processed/heart_cleaned.csv
+            reports/metrics.json
+            reports/*_metrics.json
+            reports/figures/
+            reports/*_tuning.csv
+            reports/*_confusion_matrix.png
+            reports/*_roc_curve.png
+            mlruns/
+            mlflow.db
+          if-no-files-found: warn

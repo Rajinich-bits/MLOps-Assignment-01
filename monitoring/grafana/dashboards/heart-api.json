@@ -1,0 +1,28 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "id": 1,
+      "targets": [{"expr": "sum(rate(heart_api_requests_total[5m])) by (path, status)", "legendFormat": "{{path}} {{status}}"}],
+      "title": "API request rate by path/status",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "id": 2,
+      "targets": [{"expr": "histogram_quantile(0.95, sum(rate(heart_api_request_duration_seconds_bucket[5m])) by (le, path))", "legendFormat": "p95 {{path}}"}],
+      "title": "95th percentile API request latency",
+      "type": "timeseries"
+    }
+  ],
+  "schemaVersion": 39,
+  "title": "Heart Disease API",
+  "uid": "heart-api",
+  "version": 1
+}
