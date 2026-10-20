@@ -1,31 +1,95 @@
 # Heart Disease MLOps Learning Project
 
-This repository is a runnable learning scaffold for the AIMLCZG523 Assignment 01. It demonstrates a reproducible data-to-API workflow using the UCI Heart Disease dataset. It is **not** a clinical tool and must not be used to make medical decisions.
+This project is for AIMLCZG523 Assignment 01. It shows how to prepare the UCI Heart Disease data, train and track models, and deploy a prediction API with Kubernetes. It is a learning project, not a medical tool.
 
-> **Academic integrity and evidence:** The current folder includes measured results and screenshots from a real local run. Review and understand them, personalize your implementation/report, and record your own walkthrough video. No public cloud deployment or GitHub Actions run is claimed. Complete `REPORT_TEMPLATE.md` using your own explanation and add your repository URL before submitting.
+> **Before submitting:** Run the steps yourself, make sure you understand the results, and write the report in your own words. Add your repository URL and record your own walkthrough video. In `screenshots/`, files prefixed with `codespaces-` are from Codespaces; other screenshots are from earlier local runs.
 
-## What the assignment asks you to do
+## Assignment tasks covered
 
-| Assignment task | Where this scaffold addresses it | What you still need to demonstrate |
+| Task | Project files or tools | What to include in your submission |
 | --- | --- | --- |
-| 1. Data acquisition and EDA (5) | `scripts/download_data.py`, `src/heart_ml/data.py`, `scripts/eda.py` | Interpret the generated plots and missingness in your own words. |
-| 2. Feature engineering and models (8) | `src/heart_ml/pipeline.py`, `src/heart_ml/train.py` | Explain model selection and metric trade-offs from actual results. |
-| 3. Experiment tracking (5) | MLflow runs and artifacts emitted by `train.py` | Review the actual runs in the local UI and explain them. |
-| 4. Packaging and reproducibility (7) | scikit-learn preprocessing pipeline, joblib model, `requirements.txt` | Record your environment and understand the end-to-end pipeline. |
-| 5. CI/CD and tests (8) | `.github/workflows/ci.yml`, `tests/` | Push to your own GitHub repository and capture a successful workflow run. |
-| 6. Containerization (5) | `Dockerfile`, `docker-compose.yml` | Review and understand the local build/run evidence. |
-| 7. Deployment (7) | `deployment/minikube-stack.yaml`, `kustomization.yaml` | Local Minikube/QEMU stack; no public cloud deployment. |
-| 8. Monitoring/logging (3) | API metrics and Kubernetes-hosted Prometheus/Grafana | Verify the API scrape target and dashboard. |
-| 9. Report (2) | `REPORT_TEMPLATE.md` | Complete your analysis, add your repository URL, and export/check the 10-page report. |
+| Data and EDA | `scripts/`, `src/heart_ml/data.py` | Explain the plots and data preparation. |
+| Models and tracking | `src/heart_ml/train.py`, MLflow | Explain model choice and results. |
+| Tests and CI | `tests/`, `.github/workflows/ci.yml` | Show test and workflow results. |
+| API and deployment | `Dockerfile`, `deployment/`, `kustomization.yaml` | Show API and monitoring checks. |
+| Report | `REPORT_TEMPLATE.md` | Complete and export the report as required. |
 
-## 1. Prerequisites
+## Quick guide
 
-- Python 3.10–3.13
+For the main Codespaces workflow, follow these sections in order:
+
+1. [Set up Python and Minikube](#github-codespaces-setup)
+2. [Download and prepare the data](#2-download-and-inspect-data)
+3. [Train the models](#3-train-compare-and-track-experiments)
+4. [Run tests](#4-tests-and-lint)
+5. [Deploy the API and monitoring tools](#6-deploy-the-whole-serving-stack-to-minikube)
+
+The MLflow browser page, direct API run, macOS setup, and Docker Compose are optional. You do not need them for the Codespaces Minikube deployment.
+
+## 1. Set up the environment
+
+- Python 3.12 (used in Codespaces and CI)
 - Git
-- Minikube, QEMU, and kubectl for the recommended Minikube workflow (Docker Desktop and Colima are not required)
-- Docker Engine and Docker Compose v2 only if you choose the optional Compose workflow
+- Minikube and kubectl (installed in the Codespaces steps below)
 
-The first-time setup below uses a virtual environment. On macOS/Linux:
+### GitHub Codespaces setup
+
+Use Python 3.12 for this project. In a Codespaces terminal, run:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y python3.12 python3.12-venv
+cd /workspaces/MLOps-Assignment-01
+python3.12 -m venv .venv
+source .venv/bin/activate
+python --version
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m pip install -e ".[dev]"
+```
+
+Check that `python --version` prints Python 3.12.x. Keep using this terminal with `.venv` active when you run the project commands.
+
+Install Minikube and start the Kubernetes cluster:
+
+```bash
+curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+sudo install minikube-linux-amd64 /usr/local/bin/minikube
+rm minikube-linux-amd64
+minikube start --driver=docker --container-runtime=containerd \
+  --cpus=2 --memory=4096 --disk-size=20g
+minikube status
+kubectl config current-context
+kubectl get nodes
+```
+
+Wait for the node to show `Ready` before continuing.
+
+<details>
+<summary>If the Minikube node does not become Ready</summary>
+
+Codespaces may be able to download an image with Docker even when Minikube cannot. If the `kindnet` pod shows `ImagePullBackOff`, run:
+
+```bash
+kubectl get pods -n kube-system
+kubectl describe pod -n kube-system -l k8s-app=kindnet
+KINDNET_IMAGE=$(kubectl get pod -n kube-system -l k8s-app=kindnet \
+  -o jsonpath='{.items[0].spec.containers[0].image}')
+docker pull "$KINDNET_IMAGE"
+minikube image load "$KINDNET_IMAGE"
+kubectl delete pod -n kube-system -l k8s-app=kindnet
+kubectl get nodes
+```
+
+Wait for the node to show `Ready`. If it still does not, check `kubectl describe node minikube` and `minikube logs --problems`.
+
+</details>
+
+### Local setup (optional)
+
+The rest of this section is only needed if you are not using Codespaces.
+
+On macOS or Linux, create a virtual environment and install the dependencies:
 
 ```bash
 python3 -m venv .venv
@@ -35,12 +99,9 @@ python -m pip install -r requirements.txt
 python -m pip install -e ".[dev]"
 ```
 
-On Windows PowerShell, create/activate with `py -m venv .venv` and `.venv\Scripts\Activate.ps1`, then run the same pip commands.
+On Windows PowerShell, create and activate the environment with `py -m venv .venv` and `.venv\Scripts\Activate.ps1`, then run the same pip commands.
 
-The recommended Minikube setup uses QEMU and containerd, so it does not
-require a Docker Engine on the Mac. See
-[deployment/MINIKUBE_MIGRATION.md](deployment/MINIKUBE_MIGRATION.md) for the
-complete setup and deployment walkthrough.
+For the macOS Minikube setup, see [deployment/MINIKUBE_MIGRATION.md](deployment/MINIKUBE_MIGRATION.md).
 
 ## 2. Download and inspect data
 
@@ -50,7 +111,7 @@ Download the original Cleveland subset from the UCI Machine Learning Repository:
 python scripts/download_data.py
 ```
 
-The source file is `data/raw/heart.csv`. The script downloads the official UCI archive and extracts `processed.cleveland.data`; it does not silently replace an existing file. Review UCI's dataset documentation and cite the source in your report.
+This downloads the Cleveland dataset to `data/raw/heart.csv`. Cite the UCI dataset in your report.
 
 Create the cleaned, normalized CSV with the binary target:
 
@@ -58,9 +119,9 @@ Create the cleaned, normalized CSV with the binary target:
 python scripts/prepare_data.py
 ```
 
-This writes `data/processed/heart_cleaned.csv`. The source's six unknown feature values are preserved as missing values in this file; the model pipeline imputes them inside each training fold to avoid preprocessing leakage.
+This creates `data/processed/heart_cleaned.csv`. Unknown values are kept as missing here and filled by the model pipeline during training.
 
-Data preparation and model preprocessing happen at different points by design. The preparation script handles dataset-level work such as column normalization, unknown-value recognition, and binary target creation. Imputation, scaling, and categorical encoding are fitted as part of the model pipeline after each training split. Fitting those steps on the whole dataset before splitting would leak information from validation/holdout data into training and would make inference less consistent.
+The preparation step cleans column names and changes the original target into two classes: `0` (no disease) and `1` (disease). The model pipeline handles missing values, scaling, and category encoding.
 
 Generate exploratory plots:
 
@@ -68,7 +129,7 @@ Generate exploratory plots:
 python scripts/eda.py
 ```
 
-Outputs go to `reports/figures/`: feature histograms, a correlation heatmap for continuous numeric features and target, and a target-class balance chart. Categorical fields are omitted from Pearson correlation because their integer codes are category labels, not continuous measurements. The target in the raw data is `num` (0 = no disease, 1–4 = disease); preprocessing maps 1–4 to positive class 1. The Cleveland file uses `?` for unknown values; the data loader preserves those as missing so the fitted preprocessing pipeline can impute them.
+The charts are saved in `reports/figures/`. They show feature distributions, correlations, and the number of examples in each class.
 
 ## 3. Train, compare, and track experiments
 
@@ -76,17 +137,18 @@ Outputs go to `reports/figures/`: feature histograms, a correlation heatmap for 
 python -m heart_ml.train --data data/raw/heart.csv --output models
 ```
 
-The command uses a stratified holdout split and compares Logistic Regression and Random Forest. Its pipeline derives two numeric features from age and maximum heart rate: heart-rate reserve (`220 - age - thalach`) and the fraction of estimated maximum heart rate (`thalach / (220 - age)`). These use the common 220-minus-age heuristic, which is an approximate feature transformation, not a validated medical measure. A small grid search with cross-validation is performed using training data only; within each fold the pipeline creates these features, imputes missing values, one-hot encodes categorical columns, and scales numeric columns. This keeps preprocessing fitted only on each training fold and avoids leakage. The best mean cross-validation ROC-AUC selects the model. Holdout accuracy, precision, recall, ROC-AUC, and confusion matrix are recorded for inspection.
+The script compares Logistic Regression and Random Forest using cross-validation, then evaluates the selected model on a held-out test set. It saves accuracy, precision, recall, ROC-AUC, and plots so you can review the results. Preprocessing is fitted as part of the model pipeline.
 
-The best fitted preprocessing-plus-model pipeline is saved as both `models/heart_model.joblib` and `models/heart_model.pkl`; results, hyperparameter-search tables, and plots are written under `reports/` and logged to MLflow. Each comparison run logs its best parameters, CV/holdout metrics, search grid, tuning results, candidate pipeline, cleaned dataset, EDA figures, confusion matrix, ROC curve, training metadata/software versions, and `requirements.txt`. The dedicated `selected_model` run logs the selected-model metrics and summary, evaluation plots and tuning results, cleaned dataset and EDA figures, plus final `.joblib` and `.pkl` files and environment requirements. In the MLflow run's **Artifacts** tab, use `model/`, `data/`, `eda/`, `environment/`, `metrics/`, `metadata/`, `plots/`, and `tuning/`; comparison runs also have `pipeline/`. Only load serialized files from sources you trust. Run metadata is stored in `mlflow.db`, and run artifacts are stored under `mlruns/`.
+The model is saved under `models/`, reports and plots under `reports/`, and experiment data in `mlflow.db` and `mlruns/`. The dataset is small, so results may vary and should not be treated as clinical evidence.
 
-Start the experiment UI in another terminal:
+Training saves runs to MLflow but does not open a browser page. **Optional:** To view the runs in Codespaces, open a second terminal at the repository root and run:
 
 ```bash
-mlflow ui --backend-store-uri sqlite:///mlflow.db --host 127.0.0.1 --port 5000
+source .venv/bin/activate
+python -m mlflow ui --backend-store-uri sqlite:///mlflow.db --host 0.0.0.0 --port 5000
 ```
 
-Open <http://127.0.0.1:5000>. Compare the actual runs and note the parameter/metric trade-offs in your report. A small classic dataset can yield unstable estimates; do not present a single split as proof of clinical performance.
+Leave this terminal open and open port `5000` in the Codespaces **Ports** tab. The UI shows runs saved in this Codespace. If there are no runs, train the model first. You can skip this optional step and continue with deployment.
 
 ## 4. Tests and lint
 
@@ -96,11 +158,13 @@ ruff format --check src tests scripts
 pytest
 ```
 
-Tests use generated, clearly synthetic rows and do not imply that the UCI dataset was downloaded or training succeeded. The GitHub Actions workflow downloads and prepares the UCI data, runs EDA/training, and uploads dataset/model/run artifacts when its jobs succeed.
+These commands check code style and run the tests. The GitHub Actions workflow also runs data preparation and model training.
 
-## 5. Run the API locally
+<details>
+<summary>Optional: run the API directly without Kubernetes</summary>
 
-Train first, then:
+This standalone development option is not part of the Minikube workflow below.
+Train the model first, then run the API process directly on the host:
 
 ```bash
 uvicorn heart_ml.api:app --host 127.0.0.1 --port 8000
@@ -116,28 +180,115 @@ curl -X POST http://127.0.0.1:8000/predict \
 
 The response includes the binary prediction, confidence in the predicted class, and positive-class probability. Request logs deliberately omit the submitted patient features. This demo is not an authenticated, privacy-hardened or clinically validated service.
 
-The API listens only on the local machine when started with the command above. In the Minikube deployment, use the API port-forward command in the [Minikube guide](deployment/MINIKUBE_MIGRATION.md) to reach <http://localhost:8000>; this is a local endpoint, not a public cloud URL. If using the optional Compose workflow, its API is also reachable at <http://localhost:8000>.
+The local Uvicorn command is only for running the API directly during
+development. It is not needed for the Minikube deployment: Kubernetes starts
+the API container, and `kubectl port-forward` provides access to it.
+
+</details>
 
 ## 6. Deploy the whole serving stack to Minikube
 
-The recommended local deployment runs the API, Prometheus, and Grafana inside a
-QEMU-backed Minikube cluster. Docker Desktop and Colima are not needed. Follow
-the [Minikube migration and verification guide](deployment/MINIKUBE_MIGRATION.md)
-for installation, model training, in-cluster image build, manifests, Grafana
-credentials, port forwarding, testing, and cleanup.
+Minikube runs the API, Prometheus, and Grafana. Before deploying, complete the data, training, and test steps above in the same Codespace. The API image needs the trained model file from `models/`.
 
-The root `kustomization.yaml` builds ConfigMaps from the project monitoring
-configuration and dashboard. Apply the full stack with:
+### GitHub Codespaces (Minikube Docker driver)
+
+Build the API image and load it into Minikube:
+
+```bash
+docker build -t heart-disease-api:local .
+minikube image load heart-disease-api:local
+minikube image ls | grep heart-disease-api
+```
+
+Create the namespace and a local Grafana credential, then deploy:
 
 ```bash
 kubectl apply -f deployment/minikube-namespace.yaml
+read -rsp "Choose a local Grafana admin password: " GRAFANA_PASSWORD
+echo
+kubectl create secret generic grafana-admin \
+  --namespace mlops \
+  --from-literal=admin-user=admin \
+  --from-literal=admin-password="$GRAFANA_PASSWORD" \
+  --dry-run=client -o yaml | kubectl apply -f -
+unset GRAFANA_PASSWORD
+
 kubectl apply -k .
+kubectl rollout status deployment/heart-disease-api -n mlops --timeout=180s
+kubectl rollout status deployment/prometheus -n mlops --timeout=180s
+kubectl rollout status deployment/grafana -n mlops --timeout=180s
+kubectl get pods,services -n mlops
 ```
 
-The API, Prometheus, and Grafana Services are cluster-internal. Use
-`kubectl port-forward` as explained in the migration guide to access them from
-the Mac. The older `deployment/k8s.yaml` remains an API-only LoadBalancer
-manifest for compatibility with the previous local Kubernetes workflow.
+For a later model retrain, rebuild and load the API image, then restart the
+existing API Deployment so its pod uses that image:
+
+```bash
+docker build -t heart-disease-api:local .
+minikube image load heart-disease-api:local
+kubectl rollout restart deployment/heart-disease-api -n mlops
+kubectl rollout status deployment/heart-disease-api -n mlops --timeout=180s
+```
+
+Kubernetes normally pulls the Prometheus and Grafana images automatically, so
+try applying the manifests first. Only if either pod is stuck in
+`ImagePullBackOff` because the Minikube node cannot reach Docker Hub, pull the
+images through the Codespace Docker daemon and load them into Minikube. Then
+delete the failing pods so their Deployments recreate them:
+
+```bash
+docker pull prom/prometheus:v2.55.1
+docker pull grafana/grafana:11.3.0
+minikube image load prom/prometheus:v2.55.1
+minikube image load grafana/grafana:11.3.0
+kubectl delete pod -n mlops -l app=prometheus
+kubectl delete pod -n mlops -l app=grafana
+kubectl rollout status deployment/prometheus -n mlops --timeout=180s
+kubectl rollout status deployment/grafana -n mlops --timeout=180s
+```
+
+The Services are `ClusterIP` and are accessed through port-forwarding. Run
+each command in a separate Codespaces terminal and keep the terminals open:
+
+```bash
+kubectl port-forward --address 0.0.0.0 -n mlops service/heart-disease-api 8000:8000
+kubectl port-forward --address 0.0.0.0 -n mlops service/prometheus 9090:9090
+kubectl port-forward --address 0.0.0.0 -n mlops service/grafana 3000:3000
+```
+
+In the Codespaces **Ports** tab, open ports 8000, 9090, and 3000; keep them
+private. The API root `/` returns 404 because no root route is defined. Use
+`/docs` for Swagger UI or `/health` for a health check. Verify the API and
+Prometheus scrape from another terminal:
+
+```bash
+curl -i http://127.0.0.1:8000/health
+curl -sS -X POST http://127.0.0.1:8000/predict \
+  -H 'Content-Type: application/json' \
+  -d '{"age":63,"sex":1,"cp":3,"trestbps":145,"chol":233,"fbs":1,"restecg":0,"thalach":150,"exang":0,"oldpeak":2.3,"slope":1,"ca":0,"thal":3}'
+curl -sS 'http://127.0.0.1:9090/api/v1/query?query=up%7Bjob%3D%22heart-disease-api%22%7D'
+```
+
+Health should return HTTP 200 and the Prometheus query should report `1`.
+Open the forwarded Grafana port, sign in as `admin` using the password created
+above, and view **MLOps Demo → Heart Disease API**. Send API requests and allow
+time for scraping before expecting dashboard panels to show data.
+
+Stop each port-forward with Ctrl+C. To stop the cluster while preserving its
+resources, run `minikube stop`. Do not run `docker compose up` for this Minikube
+workflow; Compose is a separate deployment option.
+
+### Local macOS Minikube (QEMU driver)
+
+On macOS, use the QEMU-based setup and image build described in the
+[Minikube migration and verification guide](deployment/MINIKUBE_MIGRATION.md).
+That environment is separate from a Codespace.
+
+The root `kustomization.yaml` builds ConfigMaps from the project monitoring
+configuration and dashboard. The older `deployment/k8s.yaml` remains an
+API-only LoadBalancer manifest for compatibility with the previous local
+Kubernetes workflow. The current complete stack uses internal ClusterIP
+Services and port-forward access; it is not a public-cloud deployment.
 
 ## 7. Optional Docker Compose alternative
 
@@ -145,22 +296,20 @@ If Docker Desktop or Colima is available and you prefer Compose, train the model
 first and run:
 
 ```bash
-docker-compose up --build
+docker compose up --build
 ```
 
-This optional workflow runs the API, Prometheus, and Grafana on local ports
-8000, 9090, and 3000, respectively. Stop it with `Ctrl+C` and
-`docker-compose down`. The API image installs only inference dependencies from
+This optional alternative runs the API, Prometheus, and Grafana on local ports
+8000, 9090, and 3000, respectively. Stop it with Ctrl+C or run
+`docker compose down`. The API image installs only inference dependencies from
 `requirements-api.txt`.
 
-## 8. Before submission
+## 8. Before you submit
 
-1. Read `REPORT_TEMPLATE.md` and replace each prompt with your actual findings, decisions, limitations, and sources.
-2. Run the data, EDA, training, tests, API, Minikube, and monitoring commands yourself; preserve the outputs you choose to report.
-3. Push the project to a GitHub repository you own. Confirm the Actions workflow succeeds on your repository.
-4. Existing Docker, Kubernetes, MLflow and monitoring screenshots are in `screenshots/`; review them and capture your own Minikube/CI screenshots after verifying the current setup.
-5. Record your short walkthrough video yourself and include its location/link per your course submission rules.
-6. Verify that your report is about 10 pages after exporting it to the required PDF/DOCX format. No PDF is generated from placeholders here.
+1. Complete `REPORT_TEMPLATE.md` in your own words. Include your repository link and the results you observed.
+2. Review the `codespaces-` screenshots in `screenshots/`. Other screenshots in that folder document earlier local runs.
+3. Push the project to your GitHub repository and check that its Actions workflow passes.
+4. Record your walkthrough video and export the report to the format and page count required by your course.
 
 ## Project layout
 
@@ -176,7 +325,7 @@ flowchart LR
     CV --> MLflow[MLflow params, metrics, plots]
     CV --> Artifact[Serialized best pipeline]
     Artifact --> API[FastAPI predict + health + metrics]
-    API --> Container[Minikube QEMU / containerd]
+    API --> Container[Minikube: QEMU on Mac / Docker driver in Codespaces]
     API --> Prometheus[Prometheus in Kubernetes]
     Prometheus --> Grafana[Grafana dashboard]
     Tests[Pytest + Ruff] --> CI[GitHub Actions]
